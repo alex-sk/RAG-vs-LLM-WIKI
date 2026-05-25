@@ -1,0 +1,32 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Frontend
+node_modules/
+dist/
+frontend/dist/
+frontend/.vite/
+
+# Generated data (regenerable via scripts/)
+corpus/
+data/chroma/
+data/all_questions.json
+data/build_manifest.json
+
+# Logs / debug
+*.log
+*.out
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/

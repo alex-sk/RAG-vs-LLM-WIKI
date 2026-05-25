@@ -1,0 +1,137 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { MitigationsBanner } from '@/components/MitigationsBanner'
+import { PipelinePanel } from '@/components/PipelinePanel'
+import { QueryBar } from '@/components/QueryBar'
+import { streamSSE } from '@/lib/sse'
+import {
+  emptyPipelineState,
+  type DemoQuestion,
+  type PipelineState,
+} from '@/types'
+import { Check, X } from 'lucide-react'
+
+export default function App() {
+  const [rag, setRag] = useState<PipelineState>(emptyPipelineState())
+  const [wiki, setWiki] = useState<PipelineState>(emptyPipelineState())
+  const [demos, setDemos] = useState<DemoQuestion[]>([])
+  const [currentQ, setCurrentQ] = useState<string>('')
+  const cancellers = useRef<Array<() => void>>([])
+
+  useEffect(() => {
+    fetch('/api/demo-questions')
+      .then((r) => r.json())
+      .then(setDemos)
+      .catch(() => setDemos([]))
+  }, [])
+
+  const isStreaming = rag.status === 'streaming' || wiki.status === 'streaming'
+
+  const gold = useMemo(() => {
+    return demos.find((d) => d.question === currentQ)?.answer
+  }, [demos, currentQ])
+
+  const runQuery = (question: string) => {
+    cancellers.current.forEach((c) => c())
+    cancellers.current = []
+    setCurrentQ(question)
+    setRag({ ...emptyPipelineState(), status: 'streaming' })
+    setWiki({ ...emptyPipelineState(), status: 'streaming' })
+
+    const setters = [
+      { url: `/api/rag?question=${encodeURIComponent(question)}`, set: setRag },
+      { url: `/api/wiki?question=${encodeURIComponent(question)}`, set: setWiki },
+    ]
+
+    for (const { url, set } of setters) {
+      const cancel = streamSSE(
+        url,
+        (ev) => {
+          if (ev.event === 'retrieved_chunks') {
+            set((s) => ({ ...s, chunks: ev.chunks }))
+          } else if (ev.event === 'tool_call' || ev.event === 'tool_result') {
+            set((s) => ({ ...s, toolEvents: [...s.toolEvents, ev] }))
+          } else if (ev.event === 'token') {
+            set((s) => ({ ...s, answer: s.answer + ev.text }))
+          } else if (ev.event === 'done') {
+            const { event: _e, ...metrics } = ev
+            set((s) => ({ ...s, status: 'done', metrics }))
+          }
+        },
+        (err) => set((s) => ({ ...s, status: 'error', error: err })),
+      )
+      cancellers.current.push(cancel)
+    }
+  }
+
+  return (
+    <div className="flex h-full flex-col bg-neutral-50">
+      <header className="border-b border-neutral-200 bg-white">
+        <div className="mx-auto max-w-6xl px-6 py-4">
+          <h1 className="text-base font-semibold tracking-tight text-neutral-900">
+            RAG <span className="text-neutral-400">vs</span> LLM Wiki
+          </h1>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            Same model · same corpus · different retrieval
+          </p>
+        </div>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-6 py-6">
+        <QueryBar onSubmit={runQuery} isStreaming={isStreaming} demos={demos} />
+
+        <MitigationsBanner />
+
+        {gold && (rag.status === 'done' || wiki.status === 'done') && (
+          <div className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-xs">
+            <span className="text-neutral-500">Ground truth (HotpotQA):</span>
+            <span className="font-mono font-medium text-neutral-900">{gold}</span>
+            <span className="ml-auto flex items-center gap-3">
+              <Verdict label="RAG" answer={rag.answer} gold={gold} done={rag.status === 'done'} />
+              <Verdict label="Wiki" answer={wiki.answer} gold={gold} done={wiki.status === 'done'} />
+            </span>
+          </div>
+        )}
+
+        <div className="grid flex-1 grid-cols-2 gap-5">
+          <PipelinePanel
+            title="RAG"
+            subtitle="embed → top-5 chunks → gpt-4o"
+            accent="rag"
+            state={rag}
+          />
+          <PipelinePanel
+            title="LLM Wiki"
+            subtitle="agent · glob / read_file / grep → gpt-4o"
+            accent="wiki"
+            state={wiki}
+          />
+        </div>
+      </main>
+    </div>
+  )
+}
+
+function Verdict({
+  label,
+  answer,
+  gold,
+  done,
+}: {
+  label: string
+  answer: string
+  gold: string
+  done: boolean
+}) {
+  if (!done) return null
+  const ok = answer.toLowerCase().includes(gold.toLowerCase())
+  return (
+    <span className="inline-flex items-center gap-1 font-medium">
+      <span className="text-neutral-600">{label}</span>
+      {ok ? (
+        <Check className="h-3.5 w-3.5 text-emerald-600" />
+      ) : (
+        <X className="h-3.5 w-3.5 text-red-500" />
+      )}
+    </span>
+  )
+}

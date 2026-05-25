@@ -1,0 +1,176 @@
+[
+  {
+    "id": "5add1d575542992c1e3a2540",
+    "question": "What nationality was Oliver Reed's character in the film Royal Flash?",
+    "answer": "Prussian",
+    "type": "bridge",
+    "level": "hard",
+    "supporting_slugs": [
+      "royal-flash-film",
+      "royal-flash-film",
+      "otto-von-bismarck"
+    ]
+  },
+  {
+    "id": "5ac55ea55542993e66e82377",
+    "question": "Pacific Mozart Ensemble performed which German composer's Der Lindberghflug in 2002?",
+    "answer": "Kurt Julian Weill",
+    "type": "bridge",
+    "level": "hard",
+    "supporting_slugs": [
+      "pacific-mozart-ensemble",
+      "kurt-weill"
+    ]
+  },
+  {
+    "id": "5ac3a76e554299741d48a2be",
+    "question": "Who released the song \"With or Without You\" first, Jai McDowall or U2?",
+    "answer": "U2",
+    "type": "bridge",
+    "level": "hard",
+    "supporting_slugs": [
+      "believe-jai-mcdowall-album",
+      "believe-jai-mcdowall-album",
+      "believe-jai-mcdowall-album",
+      "with-or-without-you",
+      "with-or-without-you"
+    ]
+  },
+  {
+    "id": "5a7133565542994082a3e65c",
+    "question": "What Kentucky county has a population of 60,316 and features the Lake Louisvilla neighborhood?",
+    "answer": "Oldham County",
+    "type": "bridge",
+    "level": "hard",
+    "supporting_slugs": [
+      "lake-louisvilla-louisville",
+      "lake-louisvilla-louisville",
+      "oldham-county-kentucky",
+      "oldham-county-kentucky",
+      "oldham-county-kentucky"
+    ]
+  },
+  {
+    "id": "5ac1a4745542991316484b82",
+    "question": "Para Hills West, South Australia lies within a city with what estimated population?",
+    "answer": "138,535",
+    "type": "bridge",
+    "level": "hard",
+    "supporting_slugs": [
+      "para-hills-west-south-australia",
+      "city-of-salisbury"
+    ]
+  },
+  {
+    "id": "5ac15de55542991316484afb",
+    "question": "Were the films Crazy Love and Welcome to Nollywood both released in 2008?",
+    "answer": "no",
+    "type": "comparison",
+    "level": "hard",
+    "supporting_slugs": [
+      "crazy-love-2007-film",
+      "welcome-to-nollywood"
+    ]
+  },
+  {
+    "id": "5a8cea40554299441c6b9f76",
+    "question": "Which mountain is taller, Gasherbrum II or Langtang Ri?",
+    "answer": "Gasherbrum II",
+    "type": "comparison",
+    "level": "hard",
+    "supporting_slugs": [
+      "gasherbrum-ii",
+      "langtang-ri"
+    ]
+  },
+  {
+    "id": "5abcff225542993a06baf9ea",
+    "question": "During the 2004-05 Atlanta Hawks season, the team acquired a former professional basketball player, who is the current head coach of what team?",
+    "answer": "Cleveland Cavaliers",
+    "type": "bridge",
+    "level": "hard",
+    "supporting_slugs": [
+      "2004-05-atlanta-hawks-season",
+      "2004-05-atlanta-hawks-season",
+      "tyronn-lue"
+    ]
+  },
+  {
+    "id": "5a8704f8554299211dda2ba4",
+    "question": "What is the name of the Isles who were led by Aonghus M\u00f3r and covered a total land area of over 8300 km2?",
+    "answer": "Kingdom of the Isles",
+    "type": "bridge",
+    "level": "hard",
+    "supporting_slugs": [
+      "aonghus-m-r",
+      "kingdom-of-the-isles",
+      "kingdom-of-the-isles"
+    ]
+  },
+  {
+    "id": "5a75ebfc5542992d0ec06018",
+    "question": "What indigenous American ethnic group that inhabits land in the northern United States and southern Canada was part of the Treaty of Springwells?",
+    "answer": "Odawa",
+    "type": "bridge",
+    "level": "hard",
+    "supporting_slugs": [
+      "treaty-of-springwells",
+      "odawa"
+    ]
+  },
+  {
+    "id": "5a8d9e0f554299441c6ba015",
+    "question": "The actor that played Gutthi on Comedy nights with Kapil Show also starred in what 2016 Punjabi film directed by Smeep Kang?",
+    "answer": "Vaisakhi List",
+    "type": "bridge",
+    "level": "hard",
+    "supporting_slugs": [
+      "vaisakhi-list",
+      "sunil-grover"
+    ]
+  },
+  {
+    "id": "5a79e3925542994bb9457130",
+    "question": "Name three best sellers from Arthur Hailey that were released before Donna Tartt was born.",
+    "answer": "Hotel\" (1965), \"Airport\" (1968), \"Wheels\" (1971)",
+    "type": "comparison",
+    "level": "hard",
+    "supporting_slugs": [
+      "arthur-hailey",
+      "donna-tartt"
+    ]
+  },
+  {
+    "id": "5a80ae105542992bc0c4a7a2",
+    "question": "What occupation is shared by both Marge Piercy and Richard Aldington?",
+    "answer": "poet",
+    "type": "comparison",
+    "level": "hard",
+    "supporting_slugs": [
+      "marge-piercy",
+      "richard-aldington"
+    ]
+  },
+  {
+    "id": "5ab7f0995542995dae37e9fb",
+    "question": "Are Portuguese Podengo and Russo-European Laika the same breed of dog?",
+    "answer": "no",
+    "type": "comparison",
+    "level": "hard",
+    "supporting_slugs": [
+      "portuguese-podengo",
+      "russo-european-laika"
+    ]
+  },
+  {
+    "id": "5a7a2dac5542990198eaf0b6",
+    "question": "Who is younger, Keisuke Kuwata or Moya Brennan?",
+    "answer": "Keisuke Kuwata",
+    "type": "comparison",
+    "level": "hard",
+    "supporting_slugs": [
+      "keisuke-kuwata",
+      "moya-brennan"
+    ]
+  }
+]
