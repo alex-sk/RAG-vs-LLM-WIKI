@@ -16,7 +16,7 @@ from sse_starlette.sse import EventSourceResponse
 
 load_dotenv()
 
-from backend import judge, rag, wiki
+from backend import agentic_rag, judge, rag, wiki
 
 ROOT = Path(__file__).resolve().parents[1]
 CHROMA_DIR = ROOT / "data" / "chroma"
@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
 
     rag.init(openai_client, chroma_coll)
     wiki.init(openai_client)
+    agentic_rag.init(openai_client, chroma_coll)
     judge.init(openai_client)
     n_files = wiki.preload_corpus()
     print(f"[startup] OpenAI client ready, Chroma collection loaded, {n_files} corpus files in memory")
@@ -78,6 +79,16 @@ async def rag_endpoint(question: str, request: Request, rerank: str = "none"):
 async def wiki_endpoint(question: str, request: Request):
     async def gen():
         async for ev in wiki.wiki_stream(question, request):
+            yield {"data": json.dumps(ev)}
+    return EventSourceResponse(gen())
+
+
+@app.get("/api/agentic-rag")
+async def agentic_rag_endpoint(question: str, request: Request, rerank: str = "none"):
+    mode = rerank if rerank in ("none", "cross-encoder", "llm") else "none"
+
+    async def gen():
+        async for ev in agentic_rag.agentic_rag_stream(question, request, rerank_mode=mode):
             yield {"data": json.dumps(ev)}
     return EventSourceResponse(gen())
 

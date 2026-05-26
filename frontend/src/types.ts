@@ -32,6 +32,9 @@ export interface ToolResultEvent {
   tool: string
   args: Record<string, string>
   preview: string
+  hits?: Chunk[]
+  initial_hits?: Chunk[]
+  rerank_mode?: RerankMode
 }
 
 export interface RetrievedChunksEvent {

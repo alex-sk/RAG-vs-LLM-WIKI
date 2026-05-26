@@ -14,10 +14,19 @@ import { Check, Loader2, X } from 'lucide-react'
 
 export default function App() {
   const [rag, setRag] = useState<PipelineState>(emptyPipelineState())
+  const [agenticRag, setAgenticRag] = useState<PipelineState>(emptyPipelineState())
   const [wiki, setWiki] = useState<PipelineState>(emptyPipelineState())
   const [demos, setDemos] = useState<DemoQuestion[]>([])
   const [currentQ, setCurrentQ] = useState<string>('')
   const [rerankMode, setRerankMode] = useState<RerankMode>('none')
+  const [agenticRerankMode, setAgenticRerankMode] = useState<RerankMode>('none')
+  const [collapsed, setCollapsed] = useState<Record<'rag' | 'agenticRag' | 'wiki', boolean>>({
+    rag: false,
+    agenticRag: false,
+    wiki: false,
+  })
+  const toggleCollapsed = (key: 'rag' | 'agenticRag' | 'wiki') =>
+    setCollapsed((c) => ({ ...c, [key]: !c[key] }))
   const cancellers = useRef<Array<() => void>>([])
 
   useEffect(() => {
@@ -27,7 +36,10 @@ export default function App() {
       .catch(() => setDemos([]))
   }, [])
 
-  const isStreaming = rag.status === 'streaming' || wiki.status === 'streaming'
+  const isStreaming =
+    rag.status === 'streaming' ||
+    agenticRag.status === 'streaming' ||
+    wiki.status === 'streaming'
 
   const gold = useMemo(() => {
     return demos.find((d) => d.question === currentQ)?.answer
@@ -62,20 +74,23 @@ export default function App() {
     cancellers.current = []
     setCurrentQ(question)
     setRag({ ...emptyPipelineState(), status: 'streaming' })
+    setAgenticRag({ ...emptyPipelineState(), status: 'streaming' })
     setWiki({ ...emptyPipelineState(), status: 'streaming' })
 
     const goldForQuery = demos.find((d) => d.question === question)?.answer
 
     const ragUrl = `/api/rag?question=${encodeURIComponent(question)}&rerank=${rerankMode}`
+    const agenticUrl = `/api/agentic-rag?question=${encodeURIComponent(question)}&rerank=${agenticRerankMode}`
     const wikiUrl = `/api/wiki?question=${encodeURIComponent(question)}`
 
-    const accum = { rag: '', wiki: '' }
+    const accum = { rag: '', agenticRag: '', wiki: '' }
     const setters: Array<{
       url: string
       set: Dispatch<SetStateAction<PipelineState>>
-      key: 'rag' | 'wiki'
+      key: 'rag' | 'agenticRag' | 'wiki'
     }> = [
       { url: ragUrl, set: setRag, key: 'rag' },
+      { url: agenticUrl, set: setAgenticRag, key: 'agenticRag' },
       { url: wikiUrl, set: setWiki, key: 'wiki' },
     ]
 
@@ -114,12 +129,20 @@ export default function App() {
         ? 'embed → top-20 → cross-encoder ↓ top-5 → gpt-4o'
         : 'embed → top-20 → llm rerank ↓ top-5 → gpt-4o'
 
+  const agenticSubtitle =
+    agenticRerankMode === 'none'
+      ? 'agent · vector_search / read_file / grep → gpt-4o'
+      : agenticRerankMode === 'cross-encoder'
+        ? 'agent · vector_search + cross-encoder rerank → gpt-4o'
+        : 'agent · vector_search + llm rerank → gpt-4o'
+
   return (
     <div className="flex h-full flex-col bg-neutral-50">
       <header className="border-b border-neutral-200 bg-white">
-        <div className="mx-auto max-w-6xl px-6 py-4">
+        <div className="mx-auto max-w-[1400px] px-6 py-4">
           <h1 className="text-base font-semibold tracking-tight text-neutral-900">
-            RAG <span className="text-neutral-400">vs</span> LLM Wiki
+            RAG <span className="text-neutral-400">vs</span> Agentic RAG{' '}
+            <span className="text-neutral-400">vs</span> LLM Wiki
           </h1>
           <p className="mt-0.5 text-xs text-neutral-500">
             Same model · same corpus · different retrieval
@@ -127,38 +150,80 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-6 py-6">
+      <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-5 px-6 py-6">
         <QueryBar onSubmit={runQuery} isStreaming={isStreaming} demos={demos} />
 
         <MitigationsBanner />
 
-        {gold && (rag.status === 'done' || wiki.status === 'done') && (
-          <div className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-xs">
-            <span className="text-neutral-500">Ground truth (HotpotQA):</span>
-            <span className="font-mono font-medium text-neutral-900">{gold}</span>
-            <span className="ml-auto flex items-center gap-3">
-              <Verdict label="RAG" state={rag} />
-              <Verdict label="Wiki" state={wiki} />
-            </span>
-          </div>
-        )}
+        {gold &&
+          (rag.status === 'done' ||
+            agenticRag.status === 'done' ||
+            wiki.status === 'done') && (
+            <div className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-xs">
+              <span className="text-neutral-500">Ground truth (HotpotQA):</span>
+              <span className="font-mono font-medium text-neutral-900">{gold}</span>
+              <span className="ml-auto flex items-center gap-3">
+                <Verdict label="RAG" state={rag} />
+                <Verdict label="Agent" state={agenticRag} />
+                <Verdict label="Wiki" state={wiki} />
+              </span>
+            </div>
+          )}
 
-        <div className="grid flex-1 grid-cols-2 gap-5">
-          <PipelinePanel
-            title="RAG"
-            subtitle={ragSubtitle}
-            accent="rag"
-            state={rag}
-            rerankMode={rerankMode}
-            onRerankChange={setRerankMode}
-            disableRerankControl={isStreaming}
-          />
-          <PipelinePanel
-            title="LLM Wiki"
-            subtitle="agent · glob / read_file / grep → gpt-4o"
-            accent="wiki"
-            state={wiki}
-          />
+        <div className="flex flex-1 flex-col gap-5 lg:flex-row">
+          {[
+            {
+              key: 'rag' as const,
+              node: (
+                <PipelinePanel
+                  title="RAG"
+                  subtitle={ragSubtitle}
+                  accent="rag"
+                  view="chunks"
+                  state={rag}
+                  collapsed={collapsed.rag}
+                  onToggleCollapse={() => toggleCollapsed('rag')}
+                  rerankMode={rerankMode}
+                  onRerankChange={setRerankMode}
+                  disableRerankControl={isStreaming}
+                />
+              ),
+            },
+            {
+              key: 'agenticRag' as const,
+              node: (
+                <PipelinePanel
+                  title="Agentic RAG"
+                  subtitle={agenticSubtitle}
+                  accent="agentic-rag"
+                  view="trace"
+                  state={agenticRag}
+                  collapsed={collapsed.agenticRag}
+                  onToggleCollapse={() => toggleCollapsed('agenticRag')}
+                  rerankMode={agenticRerankMode}
+                  onRerankChange={setAgenticRerankMode}
+                  disableRerankControl={isStreaming}
+                />
+              ),
+            },
+            {
+              key: 'wiki' as const,
+              node: (
+                <PipelinePanel
+                  title="LLM Wiki"
+                  subtitle="agent · glob / read_file / grep → gpt-4o"
+                  accent="wiki"
+                  view="trace"
+                  state={wiki}
+                  collapsed={collapsed.wiki}
+                  onToggleCollapse={() => toggleCollapsed('wiki')}
+                />
+              ),
+            },
+          ]
+            .slice()
+            .sort((a, b) => Number(collapsed[b.key]) - Number(collapsed[a.key]))
+            .map(({ key, node }) => <div key={key} className="contents">{node}</div>)}
         </div>
       </main>
     </div>

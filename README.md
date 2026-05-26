@@ -1,11 +1,12 @@
-# RAG vs LLM Wiki — Side-by-Side PoC
+# RAG vs Agentic RAG vs LLM Wiki — Side-by-Side PoC
 
-A small, hands-on comparison of two retrieval architectures answering the same question over the same Wikipedia corpus:
+A small, hands-on comparison of three retrieval architectures answering the same question over the same Wikipedia corpus:
 
 - **RAG** — text embeddings → top-5 chunks from a Chroma vector store → LLM answer. Optional re-ranking stage (toggle on the RAG panel): pull 20 candidates, then narrow to 5 with either a local cross-encoder (`ms-marco-MiniLM-L-6-v2`) or an LLM-as-reranker (`gpt-4o-mini`).
-- **LLM Wiki** (Karpathy-style) — an agent navigates the corpus directly via `glob` / `read_file` / `grep` tools over markdown files, following `[[wiki-links]]` between articles.
+- **Agentic RAG** — the same agent loop as LLM Wiki, but with a `vector_search` tool over the same Chroma index alongside `read_file` / `grep` / `glob`. The first vector search is pre-seeded into the opening prompt; the agent then decides what to read, whether to follow a `[[wiki-link]]`, or whether to re-search with a refined query.
+- **LLM Wiki** (Karpathy-style) — an agent navigates the corpus directly via `glob` / `read_file` / `grep` tools over markdown files, following `[[wiki-links]]` between articles. No embeddings.
 
-Both pipelines use the same pinned model (`gpt-4o-2024-08-06`) — only retrieval differs. The frontend renders them side-by-side with live tool-call / chunk-retrieval traces so the contrast is visible.
+All three pipelines use the same pinned model (`gpt-4o-2024-08-06`) — only retrieval differs. The frontend renders them as three side-by-side panels with live tool-call / chunk-retrieval traces so the contrast is visible.
 
 ## Why HotpotQA
 
@@ -54,6 +55,7 @@ backend/
   rag.py         Direct embeddings call → Chroma query → optional rerank → streamed answer
   rerank.py      Cross-encoder + LLM-as-reranker strategies
   wiki.py        Agent loop with glob / read_file / grep over an in-memory corpus
+  agentic_rag.py Agent loop with pre-seeded vector_search + read_file / grep / glob over the shared Chroma index
 
 corpus/          Generated: <slug>.md per Wikipedia entity, with [[wiki-links]]
 data/

@@ -23,7 +23,8 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from backend import rag, wiki
+from backend import agentic_rag, rag, wiki
+from backend.agentic_rag import agentic_rag_stream
 from backend.rag import rag_stream
 from backend.wiki import wiki_stream
 
@@ -35,6 +36,7 @@ def init_shared() -> None:
     chroma_coll = chroma_client.get_collection(name="wiki")
     rag.init(openai_client, chroma_coll)
     wiki.init(openai_client)
+    agentic_rag.init(openai_client, chroma_coll)
     wiki.preload_corpus()
 
 
@@ -85,12 +87,13 @@ async def main() -> None:
         print(f"Gold: {q['answer']}")
 
         rag_result = await run_one(q, "RAG", rag_stream)
+        agent_result = await run_one(q, "Agent", agentic_rag_stream)
         wiki_result = await run_one(q, "Wiki", wiki_stream)
 
-        for r in (rag_result, wiki_result):
+        for r in (rag_result, agent_result, wiki_result):
             mark = "✓" if r["correct"] else "✗"
             m = r["metrics"]
-            print(f"\n  {mark} {r['pipeline']:4s}  ({m.get('t_ms', '?')}ms, ${m.get('cost_usd', 0):.5f})")
+            print(f"\n  {mark} {r['pipeline']:6s} ({m.get('t_ms', '?')}ms, ${m.get('cost_usd', 0):.5f})")
             print(f"      {r['answer']}")
             if r["tool_calls"]:
                 print(f"      tools: {[tc['tool'] + ':' + str(list(tc['args'].values())[0])[:30] for tc in r['tool_calls']]}")
