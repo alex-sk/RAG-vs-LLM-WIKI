@@ -75,6 +75,11 @@ export interface DemoQuestion {
   supporting_slugs: string[]
 }
 
+export interface Verdict {
+  correct: boolean
+  reason: string
+}
+
 export interface PipelineState {
   status: 'idle' | 'streaming' | 'done' | 'error'
   answer: string
@@ -83,6 +88,8 @@ export interface PipelineState {
   toolEvents: Array<ToolCallEvent | ToolResultEvent>
   metrics: DoneMetrics | null
   error: string | null
+  judging: boolean
+  verdict: Verdict | null
 }
 
 export const emptyPipelineState = (): PipelineState => ({
@@ -93,4 +100,6 @@ export const emptyPipelineState = (): PipelineState => ({
   toolEvents: [],
   metrics: null,
   error: null,
+  judging: false,
+  verdict: null,
 })

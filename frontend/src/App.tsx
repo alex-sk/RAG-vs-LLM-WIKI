@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { MitigationsBanner } from '@/components/MitigationsBanner'
 import { PipelinePanel } from '@/components/PipelinePanel'
 import { QueryBar } from '@/components/QueryBar'
@@ -8,8 +8,9 @@ import {
   type DemoQuestion,
   type PipelineState,
   type RerankMode,
+  type Verdict as VerdictResult,
 } from '@/types'
-import { Check, X } from 'lucide-react'
+import { Check, Loader2, X } from 'lucide-react'
 
 export default function App() {
   const [rag, setRag] = useState<PipelineState>(emptyPipelineState())
@@ -32,6 +33,30 @@ export default function App() {
     return demos.find((d) => d.question === currentQ)?.answer
   }, [demos, currentQ])
 
+  const runJudge = (
+    question: string,
+    gold: string,
+    answer: string,
+    set: Dispatch<SetStateAction<PipelineState>>,
+  ) => {
+    const ctrl = new AbortController()
+    cancellers.current.push(() => ctrl.abort())
+    fetch('/api/judge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, gold, answer }),
+      signal: ctrl.signal,
+    })
+      .then((r) => r.json())
+      .then((verdict: VerdictResult) =>
+        set((s) => ({ ...s, judging: false, verdict })),
+      )
+      .catch((err) => {
+        if (err.name === 'AbortError') return
+        set((s) => ({ ...s, judging: false, verdict: null }))
+      })
+  }
+
   const runQuery = (question: string) => {
     cancellers.current.forEach((c) => c())
     cancellers.current = []
@@ -39,15 +64,22 @@ export default function App() {
     setRag({ ...emptyPipelineState(), status: 'streaming' })
     setWiki({ ...emptyPipelineState(), status: 'streaming' })
 
+    const goldForQuery = demos.find((d) => d.question === question)?.answer
+
     const ragUrl = `/api/rag?question=${encodeURIComponent(question)}&rerank=${rerankMode}`
     const wikiUrl = `/api/wiki?question=${encodeURIComponent(question)}`
 
-    const setters = [
-      { url: ragUrl, set: setRag },
-      { url: wikiUrl, set: setWiki },
+    const accum = { rag: '', wiki: '' }
+    const setters: Array<{
+      url: string
+      set: Dispatch<SetStateAction<PipelineState>>
+      key: 'rag' | 'wiki'
+    }> = [
+      { url: ragUrl, set: setRag, key: 'rag' },
+      { url: wikiUrl, set: setWiki, key: 'wiki' },
     ]
 
-    for (const { url, set } of setters) {
+    for (const { url, set, key } of setters) {
       const cancel = streamSSE(
         url,
         (ev) => {
@@ -58,10 +90,15 @@ export default function App() {
           } else if (ev.event === 'tool_call' || ev.event === 'tool_result') {
             set((s) => ({ ...s, toolEvents: [...s.toolEvents, ev] }))
           } else if (ev.event === 'token') {
+            accum[key] += ev.text
             set((s) => ({ ...s, answer: s.answer + ev.text }))
           } else if (ev.event === 'done') {
             const { event: _e, ...metrics } = ev
-            set((s) => ({ ...s, status: 'done', metrics }))
+            const willJudge = !!goldForQuery && !!accum[key]
+            set((s) => ({ ...s, status: 'done', metrics, judging: willJudge }))
+            if (willJudge) {
+              runJudge(question, goldForQuery!, accum[key], set)
+            }
           }
         },
         (err) => set((s) => ({ ...s, status: 'error', error: err })),
@@ -100,8 +137,8 @@ export default function App() {
             <span className="text-neutral-500">Ground truth (HotpotQA):</span>
             <span className="font-mono font-medium text-neutral-900">{gold}</span>
             <span className="ml-auto flex items-center gap-3">
-              <Verdict label="RAG" answer={rag.answer} gold={gold} done={rag.status === 'done'} />
-              <Verdict label="Wiki" answer={wiki.answer} gold={gold} done={wiki.status === 'done'} />
+              <Verdict label="RAG" state={rag} />
+              <Verdict label="Wiki" state={wiki} />
             </span>
           </div>
         )}
@@ -128,42 +165,22 @@ export default function App() {
   )
 }
 
-function normalize(s: string) {
-  return s
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function isAnswerCorrect(answer: string, gold: string) {
-  const a = normalize(answer)
-  const parts = gold.split(',').map(normalize).filter(Boolean)
-  if (parts.length > 1) return parts.every((p) => a.includes(p))
-  return a.includes(normalize(gold))
-}
-
-function Verdict({
-  label,
-  answer,
-  gold,
-  done,
-}: {
-  label: string
-  answer: string
-  gold: string
-  done: boolean
-}) {
-  if (!done) return null
-  const ok = isAnswerCorrect(answer, gold)
+function Verdict({ label, state }: { label: string; state: PipelineState }) {
+  if (state.status !== 'done') return null
   return (
     <span className="inline-flex items-center gap-1 font-medium">
       <span className="text-neutral-600">{label}</span>
-      {ok ? (
-        <Check className="h-3.5 w-3.5 text-emerald-600" />
-      ) : (
-        <X className="h-3.5 w-3.5 text-red-500" />
-      )}
+      {state.judging ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" />
+      ) : state.verdict ? (
+        <span title={state.verdict.reason} className="inline-flex">
+          {state.verdict.correct ? (
+            <Check className="h-3.5 w-3.5 text-emerald-600" />
+          ) : (
+            <X className="h-3.5 w-3.5 text-red-500" />
+          )}
+        </span>
+      ) : null}
     </span>
   )
 }
