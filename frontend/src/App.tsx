@@ -7,6 +7,7 @@ import {
   emptyPipelineState,
   type DemoQuestion,
   type PipelineState,
+  type RerankMode,
 } from '@/types'
 import { Check, X } from 'lucide-react'
 
@@ -15,6 +16,7 @@ export default function App() {
   const [wiki, setWiki] = useState<PipelineState>(emptyPipelineState())
   const [demos, setDemos] = useState<DemoQuestion[]>([])
   const [currentQ, setCurrentQ] = useState<string>('')
+  const [rerankMode, setRerankMode] = useState<RerankMode>('none')
   const cancellers = useRef<Array<() => void>>([])
 
   useEffect(() => {
@@ -37,9 +39,12 @@ export default function App() {
     setRag({ ...emptyPipelineState(), status: 'streaming' })
     setWiki({ ...emptyPipelineState(), status: 'streaming' })
 
+    const ragUrl = `/api/rag?question=${encodeURIComponent(question)}&rerank=${rerankMode}`
+    const wikiUrl = `/api/wiki?question=${encodeURIComponent(question)}`
+
     const setters = [
-      { url: `/api/rag?question=${encodeURIComponent(question)}`, set: setRag },
-      { url: `/api/wiki?question=${encodeURIComponent(question)}`, set: setWiki },
+      { url: ragUrl, set: setRag },
+      { url: wikiUrl, set: setWiki },
     ]
 
     for (const { url, set } of setters) {
@@ -48,6 +53,8 @@ export default function App() {
         (ev) => {
           if (ev.event === 'retrieved_chunks') {
             set((s) => ({ ...s, chunks: ev.chunks }))
+          } else if (ev.event === 'reranked_chunks') {
+            set((s) => ({ ...s, rerankedChunks: ev.chunks }))
           } else if (ev.event === 'tool_call' || ev.event === 'tool_result') {
             set((s) => ({ ...s, toolEvents: [...s.toolEvents, ev] }))
           } else if (ev.event === 'token') {
@@ -62,6 +69,13 @@ export default function App() {
       cancellers.current.push(cancel)
     }
   }
+
+  const ragSubtitle =
+    rerankMode === 'none'
+      ? 'embed → top-5 chunks → gpt-4o'
+      : rerankMode === 'cross-encoder'
+        ? 'embed → top-20 → cross-encoder ↓ top-5 → gpt-4o'
+        : 'embed → top-20 → llm rerank ↓ top-5 → gpt-4o'
 
   return (
     <div className="flex h-full flex-col bg-neutral-50">
@@ -95,9 +109,12 @@ export default function App() {
         <div className="grid flex-1 grid-cols-2 gap-5">
           <PipelinePanel
             title="RAG"
-            subtitle="embed → top-5 chunks → gpt-4o"
+            subtitle={ragSubtitle}
             accent="rag"
             state={rag}
+            rerankMode={rerankMode}
+            onRerankChange={setRerankMode}
+            disableRerankControl={isStreaming}
           />
           <PipelinePanel
             title="LLM Wiki"

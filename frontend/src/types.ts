@@ -1,9 +1,12 @@
+export type RerankMode = 'none' | 'cross-encoder' | 'llm'
+
 export interface Chunk {
   source: string
   slug: string
   score: number
   preview: string
-  text: string
+  text?: string
+  rerank_score?: number
 }
 
 export interface DoneMetrics {
@@ -14,6 +17,8 @@ export interface DoneMetrics {
   cost_usd: number
   sources: string[]
   turns?: number
+  rerank_ms?: number
+  rerank_mode?: RerankMode
 }
 
 export interface ToolCallEvent {
@@ -31,8 +36,17 @@ export interface ToolResultEvent {
 
 export interface RetrievedChunksEvent {
   event: 'retrieved_chunks'
+  stage?: 'initial'
   chunks: Chunk[]
   t_ms: number
+}
+
+export interface RerankedChunksEvent {
+  event: 'reranked_chunks'
+  stage: 'reranked'
+  mode: 'cross-encoder' | 'llm'
+  chunks: Chunk[]
+  rerank_ms: number
 }
 
 export interface TokenEvent {
@@ -46,6 +60,7 @@ export interface DoneEvent extends DoneMetrics {
 
 export type SSEEvent =
   | RetrievedChunksEvent
+  | RerankedChunksEvent
   | ToolCallEvent
   | ToolResultEvent
   | TokenEvent
@@ -64,6 +79,7 @@ export interface PipelineState {
   status: 'idle' | 'streaming' | 'done' | 'error'
   answer: string
   chunks: Chunk[]
+  rerankedChunks: Chunk[]
   toolEvents: Array<ToolCallEvent | ToolResultEvent>
   metrics: DoneMetrics | null
   error: string | null
@@ -73,6 +89,7 @@ export const emptyPipelineState = (): PipelineState => ({
   status: 'idle',
   answer: '',
   chunks: [],
+  rerankedChunks: [],
   toolEvents: [],
   metrics: null,
   error: null,

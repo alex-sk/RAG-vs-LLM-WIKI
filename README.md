@@ -2,7 +2,7 @@
 
 A small, hands-on comparison of two retrieval architectures answering the same question over the same Wikipedia corpus:
 
-- **RAG** — text embeddings → top-5 chunks from a Chroma vector store → LLM answer.
+- **RAG** — text embeddings → top-5 chunks from a Chroma vector store → LLM answer. Optional re-ranking stage (toggle on the RAG panel): pull 20 candidates, then narrow to 5 with either a local cross-encoder (`ms-marco-MiniLM-L-6-v2`) or an LLM-as-reranker (`gpt-4o-mini`).
 - **LLM Wiki** (Karpathy-style) — an agent navigates the corpus directly via `glob` / `read_file` / `grep` tools over markdown files, following `[[wiki-links]]` between articles.
 
 Both pipelines use the same pinned model (`gpt-4o-2024-08-06`) — only retrieval differs. The frontend renders them side-by-side with live tool-call / chunk-retrieval traces so the contrast is visible.
@@ -44,12 +44,15 @@ cd frontend && npm run dev
 
 Then visit http://localhost:5173.
 
+> First-run note: the first time you select **cross-encoder** rerank, the model (~80 MB) is downloaded into the Hugging Face cache. Subsequent runs load it from disk in ~1 s. The backend kicks off the load in a background thread at startup so the first request stays snappy.
+
 ## Project structure
 
 ```
 backend/
   app.py         FastAPI app, lifespan-managed shared resources, SSE endpoints
-  rag.py         Direct embeddings call → Chroma query → streamed answer
+  rag.py         Direct embeddings call → Chroma query → optional rerank → streamed answer
+  rerank.py      Cross-encoder + LLM-as-reranker strategies
   wiki.py        Agent loop with glob / read_file / grep over an in-memory corpus
 
 corpus/          Generated: <slug>.md per Wikipedia entity, with [[wiki-links]]

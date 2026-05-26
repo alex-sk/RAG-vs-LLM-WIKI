@@ -63,9 +63,11 @@ def demo_questions():
 
 
 @app.get("/api/rag")
-async def rag_endpoint(question: str, request: Request):
+async def rag_endpoint(question: str, request: Request, rerank: str = "none"):
+    mode = rerank if rerank in ("none", "cross-encoder", "llm") else "none"
+
     async def gen():
-        async for ev in rag.rag_stream(question, request):
+        async for ev in rag.rag_stream(question, request, rerank_mode=mode):
             yield {"data": json.dumps(ev)}
     return EventSourceResponse(gen())
 

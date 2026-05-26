@@ -1,12 +1,21 @@
 import { cn } from '@/lib/utils'
-import type { PipelineState, ToolCallEvent, ToolResultEvent } from '@/types'
-import { ChevronRight, FileText, Search, Folder, Loader2 } from 'lucide-react'
+import type {
+  Chunk,
+  PipelineState,
+  RerankMode,
+  ToolCallEvent,
+  ToolResultEvent,
+} from '@/types'
+import { ArrowRight, ChevronRight, FileText, Folder, Loader2, Search } from 'lucide-react'
 
 interface Props {
   title: string
   subtitle: string
   accent: 'rag' | 'wiki'
   state: PipelineState
+  rerankMode?: RerankMode
+  onRerankChange?: (m: RerankMode) => void
+  disableRerankControl?: boolean
 }
 
 const toolIcon = (tool: string) => {
@@ -21,11 +30,26 @@ const toolLabel = (e: ToolCallEvent | ToolResultEvent) => {
   return `${e.tool}(${String(arg).slice(0, 60)})`
 }
 
-export function PipelinePanel({ title, subtitle, accent, state }: Props) {
+const chunkKey = (c: Chunk) => `${c.source}#${c.slug}`
+
+export function PipelinePanel({
+  title,
+  subtitle,
+  accent,
+  state,
+  rerankMode,
+  onRerankChange,
+  disableRerankControl,
+}: Props) {
   const accentRing =
-    accent === 'rag'
-      ? 'before:bg-blue-500/80'
-      : 'before:bg-emerald-500/80'
+    accent === 'rag' ? 'before:bg-blue-500/80' : 'before:bg-emerald-500/80'
+
+  const hasReranked = accent === 'rag' && state.rerankedChunks.length > 0
+  const initialTop5 = state.chunks.slice(0, 5)
+
+  // Map each reranked chunk to its rank in the initial list, so we can show
+  // the movement visually (e.g. "#14 → #1").
+  const initialRankByKey = new Map(state.chunks.map((c, i) => [chunkKey(c), i + 1]))
 
   return (
     <section
@@ -36,13 +60,33 @@ export function PipelinePanel({ title, subtitle, accent, state }: Props) {
       )}
     >
       <header className="flex items-baseline justify-between border-b border-neutral-100 px-5 py-3.5">
-        <div>
+        <div className="flex-1">
           <h2 className="text-sm font-semibold tracking-tight text-neutral-900">{title}</h2>
           <p className="mt-0.5 text-xs text-neutral-500">{subtitle}</p>
         </div>
-        {state.status === 'streaming' && (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" />
-        )}
+        <div className="flex items-center gap-3">
+          {accent === 'rag' && onRerankChange && (
+            <label className="flex items-center gap-1.5 text-[11px] text-neutral-500">
+              <span className="uppercase tracking-wider">rerank</span>
+              <select
+                value={rerankMode}
+                onChange={(e) => onRerankChange(e.target.value as RerankMode)}
+                disabled={disableRerankControl}
+                className={cn(
+                  'rounded-md border border-neutral-200 bg-white px-1.5 py-0.5 text-xs font-medium text-neutral-700',
+                  'outline-none focus:border-neutral-400 disabled:opacity-50',
+                )}
+              >
+                <option value="none">none</option>
+                <option value="cross-encoder">cross-encoder</option>
+                <option value="llm">llm</option>
+              </select>
+            </label>
+          )}
+          {state.status === 'streaming' && (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" />
+          )}
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -50,11 +94,15 @@ export function PipelinePanel({ title, subtitle, accent, state }: Props) {
         {(state.chunks.length > 0 || state.toolEvents.length > 0) && (
           <div className="mb-5 space-y-1.5">
             <div className="text-[10px] font-medium uppercase tracking-wider text-neutral-400">
-              {accent === 'rag' ? 'Retrieved chunks' : 'Agent trace'}
+              {accent === 'rag'
+                ? hasReranked
+                  ? `Retrieved → Reranked (top-${state.rerankedChunks.length} of ${state.chunks.length})`
+                  : 'Retrieved chunks'
+                : 'Agent trace'}
             </div>
 
-            {accent === 'rag' &&
-              state.chunks.map((c, i) => (
+            {accent === 'rag' && !hasReranked &&
+              initialTop5.map((c, i) => (
                 <div
                   key={i}
                   className="group flex items-center gap-2 rounded-md bg-neutral-50 px-2.5 py-1.5 text-xs"
@@ -65,6 +113,69 @@ export function PipelinePanel({ title, subtitle, accent, state }: Props) {
                   <span className="text-neutral-500">score {c.score.toFixed(2)}</span>
                 </div>
               ))}
+
+            {accent === 'rag' && hasReranked && (
+              <div className="grid grid-cols-[1fr_auto_1fr] gap-2">
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-neutral-400">
+                    initial (top 5 of {state.chunks.length})
+                  </div>
+                  {initialTop5.map((c, i) => (
+                    <div
+                      key={`init-${i}`}
+                      className="flex items-center gap-1.5 rounded-md bg-neutral-50 px-2 py-1 text-[11px]"
+                    >
+                      <span className="text-neutral-400">#{i + 1}</span>
+                      <span className="truncate font-mono text-neutral-700">
+                        {c.source}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-center pt-5 text-neutral-300">
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-neutral-400">
+                    reranked top 5
+                  </div>
+                  {state.rerankedChunks.map((c, i) => {
+                    const origRank = initialRankByKey.get(chunkKey(c))
+                    const moved = origRank !== undefined && origRank !== i + 1
+                    const promoted =
+                      origRank !== undefined && origRank > i + 1
+                    return (
+                      <div
+                        key={`rr-${i}`}
+                        className={cn(
+                          'flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]',
+                          moved
+                            ? promoted
+                              ? 'bg-emerald-50'
+                              : 'bg-amber-50'
+                            : 'bg-neutral-50',
+                        )}
+                      >
+                        <span className="text-neutral-400">#{i + 1}</span>
+                        <span className="truncate font-mono text-neutral-700">
+                          {c.source}
+                        </span>
+                        {origRank !== undefined && moved && (
+                          <span
+                            className={cn(
+                              'ml-auto font-mono text-[10px]',
+                              promoted ? 'text-emerald-600' : 'text-amber-600',
+                            )}
+                          >
+                            ←#{origRank}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {accent === 'wiki' &&
               state.toolEvents
@@ -109,7 +220,14 @@ export function PipelinePanel({ title, subtitle, accent, state }: Props) {
       <footer className="border-t border-neutral-100 px-5 py-2.5 text-[11px] text-neutral-500">
         {state.metrics ? (
           <div className="flex items-center justify-between font-mono">
-            <span>{state.metrics.t_ms} ms</span>
+            <span>
+              {state.metrics.t_ms} ms
+              {state.metrics.rerank_ms !== undefined && state.metrics.rerank_ms > 0 && (
+                <span className="ml-1 text-neutral-400">
+                  (rerank {state.metrics.rerank_ms})
+                </span>
+              )}
+            </span>
             <span>
               {state.metrics.in_tokens.toLocaleString()} →{' '}
               {state.metrics.out_tokens.toLocaleString()} tok
