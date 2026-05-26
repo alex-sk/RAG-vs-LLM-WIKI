@@ -128,6 +128,21 @@ export default function App() {
   )
 }
 
+function normalize(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isAnswerCorrect(answer: string, gold: string) {
+  const a = normalize(answer)
+  const parts = gold.split(',').map(normalize).filter(Boolean)
+  if (parts.length > 1) return parts.every((p) => a.includes(p))
+  return a.includes(normalize(gold))
+}
+
 function Verdict({
   label,
   answer,
@@ -140,7 +155,7 @@ function Verdict({
   done: boolean
 }) {
   if (!done) return null
-  const ok = answer.toLowerCase().includes(gold.toLowerCase())
+  const ok = isAnswerCorrect(answer, gold)
   return (
     <span className="inline-flex items-center gap-1 font-medium">
       <span className="text-neutral-600">{label}</span>
