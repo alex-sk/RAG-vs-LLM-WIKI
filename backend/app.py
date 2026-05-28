@@ -16,10 +16,11 @@ from sse_starlette.sse import EventSourceResponse
 
 load_dotenv()
 
-from backend import agentic_rag, judge, rag, wiki
+from backend import agentic_rag, graph_rag, judge, rag, wiki
 
 ROOT = Path(__file__).resolve().parents[1]
 CHROMA_DIR = ROOT / "data" / "chroma"
+GRAPH_DIR = ROOT / "data" / "graph"
 
 
 @asynccontextmanager
@@ -41,6 +42,10 @@ async def lifespan(app: FastAPI):
     agentic_rag.init(openai_client, chroma_coll)
     judge.init(openai_client)
     n_files = wiki.preload_corpus()
+    # graph_rag.init() must run after wiki.preload_corpus() — it does not
+    # itself load the corpus, but the runtime fetch_evidence step reads from
+    # wiki._CORPUS, so the corpus must already be in memory.
+    graph_rag.init(openai_client, GRAPH_DIR)
     print(f"[startup] OpenAI client ready, Chroma collection loaded, {n_files} corpus files in memory")
 
     yield
@@ -93,6 +98,14 @@ async def agentic_rag_endpoint(question: str, request: Request, rerank: str = "n
     return EventSourceResponse(gen())
 
 
+@app.get("/api/graph-rag")
+async def graph_rag_endpoint(question: str, request: Request):
+    async def gen():
+        async for ev in graph_rag.graph_rag_stream(question, request):
+            yield {"data": json.dumps(ev)}
+    return EventSourceResponse(gen())
+
+
 class JudgeRequest(BaseModel):
     question: str
     gold: str
@@ -111,5 +124,6 @@ def health():
         "corpus_files": len(list(corpus.glob("*.md"))) if corpus.exists() else 0,
         "corpus_in_memory": len(wiki._CORPUS),
         "index_built": CHROMA_DIR.exists() and any(CHROMA_DIR.iterdir()),
+        "graph": graph_rag.graph_stats(),
         "model": rag.GENERATION_MODEL,
     }

@@ -1,0 +1,9 @@
+{
+  "model": "gpt-4o-mini-2024-07-18",
+  "prompt_hash": "4f54f6d391a970c2",
+  "n_entities": 14204,
+  "n_edges": 13582,
+  "cost_usd": 0.776353,
+  "in_tokens": 1716000,
+  "out_tokens": 864922
+}

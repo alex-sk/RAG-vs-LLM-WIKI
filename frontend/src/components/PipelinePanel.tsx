@@ -8,16 +8,19 @@ import type {
 } from '@/types'
 import {
   ArrowRight,
+  BookOpen,
   ChevronLeft,
   ChevronRight,
+  Compass,
   FileText,
   Folder,
   Loader2,
+  Network,
   Search,
   Sparkles,
 } from 'lucide-react'
 
-export type PipelineAccent = 'rag' | 'wiki' | 'agentic-rag'
+export type PipelineAccent = 'rag' | 'wiki' | 'agentic-rag' | 'graph-rag'
 export type PipelineView = 'chunks' | 'trace'
 
 interface Props {
@@ -38,6 +41,9 @@ const toolIcon = (tool: string) => {
   if (tool === 'read_file') return <FileText className="h-3.5 w-3.5" />
   if (tool === 'grep') return <Search className="h-3.5 w-3.5" />
   if (tool === 'vector_search') return <Sparkles className="h-3.5 w-3.5" />
+  if (tool === 'extract_seeds') return <Compass className="h-3.5 w-3.5" />
+  if (tool === 'expand_neighborhood') return <Network className="h-3.5 w-3.5" />
+  if (tool === 'fetch_evidence') return <BookOpen className="h-3.5 w-3.5" />
   return <ChevronRight className="h-3.5 w-3.5" />
 }
 
@@ -65,7 +71,9 @@ export function PipelinePanel({
       ? 'before:bg-blue-500/80'
       : accent === 'agentic-rag'
         ? 'before:bg-violet-500/80'
-        : 'before:bg-emerald-500/80'
+        : accent === 'graph-rag'
+          ? 'before:bg-amber-500/80'
+          : 'before:bg-emerald-500/80'
 
   if (collapsed) {
     return (
@@ -355,7 +363,51 @@ export function PipelinePanel({
                           </div>
                         )
                       })()}
-                      {!isVecSearch && result && (
+                      {!isVecSearch && result?.graph && (
+                        <div className="mt-1.5 space-y-1 pl-5">
+                          <div className="text-[10px] uppercase tracking-wider text-neutral-400">
+                            {result.graph.nodes.length} nodes ·{' '}
+                            {result.graph.edges.length} edges
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {result.graph.nodes.slice(0, 14).map((n) => (
+                              <span
+                                key={n.id}
+                                className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-900"
+                                title={`${n.type} · ${n.id}`}
+                              >
+                                <span className="font-medium">{n.name}</span>
+                                <span className="text-amber-600">·{n.type}</span>
+                              </span>
+                            ))}
+                            {result.graph.nodes.length > 14 && (
+                              <span className="text-[10px] text-neutral-400">
+                                +{result.graph.nodes.length - 14} more
+                              </span>
+                            )}
+                          </div>
+                          {result.graph.edges.length > 0 && (
+                            <div className="space-y-0.5 pt-1">
+                              {result.graph.edges.slice(0, 8).map((g, k) => (
+                                <div
+                                  key={`g-${k}`}
+                                  className="truncate text-[10.5px] text-neutral-600"
+                                >
+                                  <span className="text-neutral-700">{g.src}</span>{' '}
+                                  <span className="text-amber-700">— {g.rel} →</span>{' '}
+                                  <span className="text-neutral-700">{g.dst}</span>
+                                </div>
+                              ))}
+                              {result.graph.edges.length > 8 && (
+                                <div className="text-[10px] text-neutral-400">
+                                  +{result.graph.edges.length - 8} more edges
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {!isVecSearch && result && !result.graph && (
                         <div className="mt-1 pl-5 text-[11px] text-neutral-500">
                           {result.preview}
                         </div>

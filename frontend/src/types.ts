@@ -27,6 +27,25 @@ export interface ToolCallEvent {
   args: Record<string, string>
 }
 
+export interface GraphNode {
+  id: string
+  name: string
+  type: string
+}
+
+export interface GraphEdge {
+  src: string
+  rel: string
+  dst: string
+  source?: string
+  evidence?: string
+}
+
+export interface GraphPayload {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+
 export interface ToolResultEvent {
   event: 'tool_result'
   tool: string
@@ -35,6 +54,7 @@ export interface ToolResultEvent {
   hits?: Chunk[]
   initial_hits?: Chunk[]
   rerank_mode?: RerankMode
+  graph?: GraphPayload
 }
 
 export interface RetrievedChunksEvent {
@@ -94,6 +114,10 @@ export interface PipelineState {
   judging: boolean
   verdict: Verdict | null
 }
+
+export type PipelineKey = 'rag' | 'agenticRag' | 'wiki' | 'graphRag'
+
+export const ALL_PIPELINE_KEYS: PipelineKey[] = ['rag', 'agenticRag', 'wiki', 'graphRag']
 
 export const emptyPipelineState = (): PipelineState => ({
   status: 'idle',

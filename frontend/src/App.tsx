@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { MethodPicker, loadVisibleMethods, persistVisibleMethods } from '@/components/MethodPicker'
 import { MitigationsBanner } from '@/components/MitigationsBanner'
 import { PipelinePanel } from '@/components/PipelinePanel'
 import { QueryBar } from '@/components/QueryBar'
@@ -6,26 +7,41 @@ import { streamSSE } from '@/lib/sse'
 import {
   emptyPipelineState,
   type DemoQuestion,
+  type PipelineKey,
   type PipelineState,
   type RerankMode,
   type Verdict as VerdictResult,
 } from '@/types'
 import { Check, Loader2, X } from 'lucide-react'
 
+const DEFAULT_VISIBLE: PipelineKey[] = ['rag', 'agenticRag', 'graphRag']
+
+const METHOD_LABEL: Record<PipelineKey, string> = {
+  rag: 'RAG',
+  agenticRag: 'Agentic RAG',
+  wiki: 'LLM Wiki',
+  graphRag: 'Graph RAG',
+}
+
 export default function App() {
   const [rag, setRag] = useState<PipelineState>(emptyPipelineState())
   const [agenticRag, setAgenticRag] = useState<PipelineState>(emptyPipelineState())
   const [wiki, setWiki] = useState<PipelineState>(emptyPipelineState())
+  const [graphRag, setGraphRag] = useState<PipelineState>(emptyPipelineState())
   const [demos, setDemos] = useState<DemoQuestion[]>([])
   const [currentQ, setCurrentQ] = useState<string>('')
   const [rerankMode, setRerankMode] = useState<RerankMode>('none')
   const [agenticRerankMode, setAgenticRerankMode] = useState<RerankMode>('none')
-  const [collapsed, setCollapsed] = useState<Record<'rag' | 'agenticRag' | 'wiki', boolean>>({
+  const [visibleMethods, setVisibleMethods] = useState<PipelineKey[]>(() =>
+    loadVisibleMethods(DEFAULT_VISIBLE),
+  )
+  const [collapsed, setCollapsed] = useState<Record<PipelineKey, boolean>>({
     rag: false,
     agenticRag: false,
     wiki: false,
+    graphRag: false,
   })
-  const toggleCollapsed = (key: 'rag' | 'agenticRag' | 'wiki') =>
+  const toggleCollapsed = (key: PipelineKey) =>
     setCollapsed((c) => ({ ...c, [key]: !c[key] }))
   const cancellers = useRef<Array<() => void>>([])
 
@@ -36,10 +52,16 @@ export default function App() {
       .catch(() => setDemos([]))
   }, [])
 
+  const updateVisible = (next: PipelineKey[]) => {
+    setVisibleMethods(next)
+    persistVisibleMethods(next)
+  }
+
   const isStreaming =
     rag.status === 'streaming' ||
     agenticRag.status === 'streaming' ||
-    wiki.status === 'streaming'
+    wiki.status === 'streaming' ||
+    graphRag.status === 'streaming'
 
   const gold = useMemo(() => {
     return demos.find((d) => d.question === currentQ)?.answer
@@ -73,28 +95,58 @@ export default function App() {
     cancellers.current.forEach((c) => c())
     cancellers.current = []
     setCurrentQ(question)
-    setRag({ ...emptyPipelineState(), status: 'streaming' })
-    setAgenticRag({ ...emptyPipelineState(), status: 'streaming' })
-    setWiki({ ...emptyPipelineState(), status: 'streaming' })
+
+    const visibleSet = new Set(visibleMethods)
+
+    // Reset every method (so isStreaming stays in sync even for hidden ones
+    // that were mid-stream); set the visible ones to 'streaming'.
+    const fresh = (visible: boolean): PipelineState => ({
+      ...emptyPipelineState(),
+      status: visible ? 'streaming' : 'idle',
+    })
+    setRag(fresh(visibleSet.has('rag')))
+    setAgenticRag(fresh(visibleSet.has('agenticRag')))
+    setWiki(fresh(visibleSet.has('wiki')))
+    setGraphRag(fresh(visibleSet.has('graphRag')))
 
     const goldForQuery = demos.find((d) => d.question === question)?.answer
 
-    const ragUrl = `/api/rag?question=${encodeURIComponent(question)}&rerank=${rerankMode}`
-    const agenticUrl = `/api/agentic-rag?question=${encodeURIComponent(question)}&rerank=${agenticRerankMode}`
-    const wikiUrl = `/api/wiki?question=${encodeURIComponent(question)}`
+    const accum: Record<PipelineKey, string> = {
+      rag: '',
+      agenticRag: '',
+      wiki: '',
+      graphRag: '',
+    }
 
-    const accum = { rag: '', agenticRag: '', wiki: '' }
-    const setters: Array<{
+    const allSetters: Array<{
+      key: PipelineKey
       url: string
       set: Dispatch<SetStateAction<PipelineState>>
-      key: 'rag' | 'agenticRag' | 'wiki'
     }> = [
-      { url: ragUrl, set: setRag, key: 'rag' },
-      { url: agenticUrl, set: setAgenticRag, key: 'agenticRag' },
-      { url: wikiUrl, set: setWiki, key: 'wiki' },
+      {
+        key: 'rag',
+        url: `/api/rag?question=${encodeURIComponent(question)}&rerank=${rerankMode}`,
+        set: setRag,
+      },
+      {
+        key: 'agenticRag',
+        url: `/api/agentic-rag?question=${encodeURIComponent(question)}&rerank=${agenticRerankMode}`,
+        set: setAgenticRag,
+      },
+      {
+        key: 'wiki',
+        url: `/api/wiki?question=${encodeURIComponent(question)}`,
+        set: setWiki,
+      },
+      {
+        key: 'graphRag',
+        url: `/api/graph-rag?question=${encodeURIComponent(question)}`,
+        set: setGraphRag,
+      },
     ]
 
-    for (const { url, set, key } of setters) {
+    for (const { key, url, set } of allSetters) {
+      if (!visibleSet.has(key)) continue  // don't pay for hidden methods
       const cancel = streamSSE(
         url,
         (ev) => {
@@ -136,13 +188,20 @@ export default function App() {
         ? 'agent · vector_search + cross-encoder rerank → gpt-4o'
         : 'agent · vector_search + llm rerank → gpt-4o'
 
+  const headerTitle = visibleMethods
+    .map((k) => METHOD_LABEL[k])
+    .reduce<ReactNode[]>((acc, label, i) => {
+      if (i > 0) acc.push(<span key={`sep-${i}`} className="text-neutral-400"> vs </span>)
+      acc.push(<span key={`label-${i}`}>{label}</span>)
+      return acc
+    }, [])
+
   return (
     <div className="flex h-full flex-col bg-neutral-50">
       <header className="border-b border-neutral-200 bg-white">
         <div className="mx-auto max-w-[1400px] px-6 py-4">
           <h1 className="text-base font-semibold tracking-tight text-neutral-900">
-            RAG <span className="text-neutral-400">vs</span> Agentic RAG{' '}
-            <span className="text-neutral-400">vs</span> LLM Wiki
+            {headerTitle}
           </h1>
           <p className="mt-0.5 text-xs text-neutral-500">
             Same model · same corpus · different retrieval
@@ -153,74 +212,103 @@ export default function App() {
       <main className="mx-auto flex w-full max-w-[1400px] flex-1 flex-col gap-5 px-6 py-6">
         <QueryBar onSubmit={runQuery} isStreaming={isStreaming} demos={demos} />
 
+        <MethodPicker
+          visible={visibleMethods}
+          onChange={updateVisible}
+          disabled={isStreaming}
+        />
+
         <MitigationsBanner />
 
         {gold &&
           (rag.status === 'done' ||
             agenticRag.status === 'done' ||
-            wiki.status === 'done') && (
-            <div className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-xs">
+            wiki.status === 'done' ||
+            graphRag.status === 'done') && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-xs">
               <span className="text-neutral-500">Ground truth (HotpotQA):</span>
               <span className="font-mono font-medium text-neutral-900">{gold}</span>
-              <span className="ml-auto flex items-center gap-3">
-                <Verdict label="RAG" state={rag} />
-                <Verdict label="Agent" state={agenticRag} />
-                <Verdict label="Wiki" state={wiki} />
+              <span className="ml-auto flex flex-wrap items-center gap-3">
+                {visibleMethods.includes('rag') && <Verdict label="RAG" state={rag} />}
+                {visibleMethods.includes('agenticRag') && (
+                  <Verdict label="Agent" state={agenticRag} />
+                )}
+                {visibleMethods.includes('graphRag') && (
+                  <Verdict label="Graph" state={graphRag} />
+                )}
+                {visibleMethods.includes('wiki') && <Verdict label="Wiki" state={wiki} />}
               </span>
             </div>
           )}
 
         <div className="flex flex-1 flex-col gap-5 lg:flex-row">
-          {[
-            {
-              key: 'rag' as const,
-              node: (
-                <PipelinePanel
-                  title="RAG"
-                  subtitle={ragSubtitle}
-                  accent="rag"
-                  view="chunks"
-                  state={rag}
-                  collapsed={collapsed.rag}
-                  onToggleCollapse={() => toggleCollapsed('rag')}
-                  rerankMode={rerankMode}
-                  onRerankChange={setRerankMode}
-                  disableRerankControl={isStreaming}
-                />
-              ),
-            },
-            {
-              key: 'agenticRag' as const,
-              node: (
-                <PipelinePanel
-                  title="Agentic RAG"
-                  subtitle={agenticSubtitle}
-                  accent="agentic-rag"
-                  view="trace"
-                  state={agenticRag}
-                  collapsed={collapsed.agenticRag}
-                  onToggleCollapse={() => toggleCollapsed('agenticRag')}
-                  rerankMode={agenticRerankMode}
-                  onRerankChange={setAgenticRerankMode}
-                  disableRerankControl={isStreaming}
-                />
-              ),
-            },
-            {
-              key: 'wiki' as const,
-              node: (
-                <PipelinePanel
-                  title="LLM Wiki"
-                  subtitle="agent · glob / read_file / grep → gpt-4o"
-                  accent="wiki"
-                  view="trace"
-                  state={wiki}
-                  collapsed={collapsed.wiki}
-                  onToggleCollapse={() => toggleCollapsed('wiki')}
-                />
-              ),
-            },
-          ]
+          {(
+            [
+              {
+                key: 'rag' as const,
+                node: (
+                  <PipelinePanel
+                    title="RAG"
+                    subtitle={ragSubtitle}
+                    accent="rag"
+                    view="chunks"
+                    state={rag}
+                    collapsed={collapsed.rag}
+                    onToggleCollapse={() => toggleCollapsed('rag')}
+                    rerankMode={rerankMode}
+                    onRerankChange={setRerankMode}
+                    disableRerankControl={isStreaming}
+                  />
+                ),
+              },
+              {
+                key: 'agenticRag' as const,
+                node: (
+                  <PipelinePanel
+                    title="Agentic RAG"
+                    subtitle={agenticSubtitle}
+                    accent="agentic-rag"
+                    view="trace"
+                    state={agenticRag}
+                    collapsed={collapsed.agenticRag}
+                    onToggleCollapse={() => toggleCollapsed('agenticRag')}
+                    rerankMode={agenticRerankMode}
+                    onRerankChange={setAgenticRerankMode}
+                    disableRerankControl={isStreaming}
+                  />
+                ),
+              },
+              {
+                key: 'graphRag' as const,
+                node: (
+                  <PipelinePanel
+                    title="Graph RAG"
+                    subtitle="extract_seeds · expand_neighborhood · fetch_evidence → gpt-4o"
+                    accent="graph-rag"
+                    view="trace"
+                    state={graphRag}
+                    collapsed={collapsed.graphRag}
+                    onToggleCollapse={() => toggleCollapsed('graphRag')}
+                  />
+                ),
+              },
+              {
+                key: 'wiki' as const,
+                node: (
+                  <PipelinePanel
+                    title="LLM Wiki"
+                    subtitle="agent · glob / read_file / grep → gpt-4o"
+                    accent="wiki"
+                    view="trace"
+                    state={wiki}
+                    collapsed={collapsed.wiki}
+                    onToggleCollapse={() => toggleCollapsed('wiki')}
+                  />
+                ),
+              },
+            ] as Array<{ key: PipelineKey; node: ReactNode }>
+          )
+            .filter(({ key }) => visibleMethods.includes(key))
             .slice()
             .sort((a, b) => Number(collapsed[b.key]) - Number(collapsed[a.key]))
             .map(({ key, node }) => <div key={key} className="contents">{node}</div>)}
