@@ -1,7 +1,8 @@
-"""Smoke test both pipelines against the curated questions.
+"""Smoke test all four pipelines against the curated questions.
 
 Prints a short pass/fail-ish report — useful for verifying the demo before
-running it live in front of an exec audience.
+running it live in front of an exec audience. Graph RAG is skipped with a
+warning if the graph hasn't been built yet (run scripts/build_graph.py).
 
 Run: uv run scripts/smoke_test.py [--limit 3]
 """
@@ -23,8 +24,9 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from backend import agentic_rag, rag, wiki
+from backend import agentic_rag, graph_rag, rag, wiki
 from backend.agentic_rag import agentic_rag_stream
+from backend.graph_rag import graph_rag_stream
 from backend.rag import rag_stream
 from backend.wiki import wiki_stream
 
@@ -38,6 +40,7 @@ def init_shared() -> None:
     wiki.init(openai_client)
     agentic_rag.init(openai_client, chroma_coll)
     wiki.preload_corpus()
+    graph_rag.init(openai_client, ROOT / "data" / "graph")
 
 
 def looks_correct(answer: str, gold: str) -> bool:
@@ -88,9 +91,16 @@ async def main() -> None:
 
         rag_result = await run_one(q, "RAG", rag_stream)
         agent_result = await run_one(q, "Agent", agentic_rag_stream)
-        wiki_result = await run_one(q, "Wiki", wiki_stream)
+        results = [rag_result, agent_result]
 
-        for r in (rag_result, agent_result, wiki_result):
+        if graph_rag.is_built():
+            results.append(await run_one(q, "Graph", graph_rag_stream))
+        else:
+            print("  (Graph RAG skipped — run scripts/build_graph.py first)")
+
+        results.append(await run_one(q, "Wiki", wiki_stream))
+
+        for r in results:
             mark = "✓" if r["correct"] else "✗"
             m = r["metrics"]
             print(f"\n  {mark} {r['pipeline']:6s} ({m.get('t_ms', '?')}ms, ${m.get('cost_usd', 0):.5f})")
