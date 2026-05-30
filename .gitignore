@@ -31,3 +31,6 @@ data/graph/entity_embeddings.npz
 .DS_Store
 .vscode/
 .idea/
+
+# Claude Code (local agent state, runtime locks)
+.claude/
