@@ -262,6 +262,7 @@ async def agentic_rag_stream(
     ]
 
     turn = 0
+    answered = False
     for turn in range(MAX_TURNS):
         if request is not None and await request.is_disconnected():
             return
@@ -283,6 +284,7 @@ async def agentic_rag_stream(
         if not msg.tool_calls:
             if msg.content:
                 yield {"event": "token", "text": msg.content}
+                answered = True
             break
 
         messages.append({
@@ -345,6 +347,23 @@ async def agentic_rag_stream(
                 "tool_call_id": tc.id,
                 "content": json.dumps(result) if not isinstance(result, str) else result,
             })
+
+    # The agent can exhaust MAX_TURNS still calling tools (or stop with empty
+    # content). Force one tool-free completion so we never return a blank panel.
+    if not answered and (request is None or not await request.is_disconnected()):
+        resp = await _openai_client.chat.completions.create(
+            model=GENERATION_MODEL,
+            messages=messages + [{
+                "role": "user",
+                "content": "Give your best final answer now using what you've gathered. Do not call any tools; if the wiki doesn't contain the answer, say so.",
+            }],
+            temperature=0,
+            seed=42,
+        )
+        total_in += resp.usage.prompt_tokens
+        total_out += resp.usage.completion_tokens
+        final = resp.choices[0].message.content or "I couldn't find enough information in the wiki to answer that."
+        yield {"event": "token", "text": final}
 
     total_cost = (
         _rag_cost(GENERATION_MODEL, total_in, total_out)
