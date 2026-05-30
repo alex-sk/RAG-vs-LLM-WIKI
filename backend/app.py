@@ -1,6 +1,7 @@
 """FastAPI app: SSE endpoints for RAG and LLM Wiki pipelines + demo questions."""
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
@@ -46,10 +47,14 @@ async def lifespan(app: FastAPI):
     # itself load the corpus, but the runtime fetch_evidence step reads from
     # wiki._CORPUS, so the corpus must already be in memory.
     graph_rag.init(openai_client, GRAPH_DIR)
+    # Build the entity-embedding matrix in the background so the first Graph RAG
+    # query that needs the NN seed fallback doesn't pay the embed cost inline.
+    emb_warm_task = asyncio.create_task(graph_rag.warm_entity_embeddings())
     print(f"[startup] OpenAI client ready, Chroma collection loaded, {n_files} corpus files in memory")
 
     yield
 
+    emb_warm_task.cancel()
     await openai_client.close()
 
 

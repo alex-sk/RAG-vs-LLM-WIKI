@@ -20,6 +20,7 @@ frontend trace renderer works untouched.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 import networkx as nx
+import numpy as np
 from fastapi import Request
 from openai import AsyncOpenAI
 
@@ -43,19 +45,25 @@ EVIDENCE_CHARS_PER_FILE = 1500
 SEED_NN_THRESHOLD = 0.55  # cosine similarity (1 - distance) for entity-name match
 
 
+EMB_CACHE_NAME = "entity_embeddings.npz"  # on-disk cache (gitignored, regenerable)
+
+
 # Shared resources injected at app startup (see backend/app.py lifespan).
 _openai_client: AsyncOpenAI | None = None
 _G: nx.MultiDiGraph | None = None
 _entities: dict[str, dict] = {}  # id -> entity record
 _entity_by_name: dict[str, str] = {}  # lowercased name/alias -> entity id
-_entity_names_ordered: list[str] = []  # parallel to _entity_embeddings rows
-_entity_embeddings: list[list[float]] | None = None  # built lazily on first query
+_entity_names_ordered: list[str] = []  # parallel to _entity_emb rows
+_entity_emb: np.ndarray | None = None  # (N, D) L2-normalised; built lazily, cached to disk
+_graph_dir: Path | None = None
+_emb_lock = asyncio.Lock()  # guards the one-time embedding build
 
 
 def init(openai_client: AsyncOpenAI, graph_dir: Path) -> None:
     """Load the offline graph into memory."""
-    global _openai_client, _G, _entities, _entity_by_name, _entity_names_ordered
+    global _openai_client, _G, _entities, _entity_by_name, _entity_names_ordered, _graph_dir
     _openai_client = openai_client
+    _graph_dir = graph_dir
 
     entities_path = graph_dir / "entities.jsonl"
     edges_path = graph_dir / "edges.jsonl"
@@ -102,37 +110,98 @@ def graph_stats() -> dict:
     return {"built": True, "nodes": _G.number_of_nodes(), "edges": _G.number_of_edges()}
 
 
-async def _ensure_entity_embeddings() -> None:
-    """Lazily embed all entity names (one-time cost on first query)."""
-    global _entity_embeddings
-    if _entity_embeddings is not None or not _entity_names_ordered:
+def _load_emb_cache() -> np.ndarray | None:
+    """Load the entity-embedding matrix from disk if it matches the current
+    entity set. Returns None on any miss/mismatch so the caller rebuilds."""
+    if _graph_dir is None:
+        return None
+    path = _graph_dir / EMB_CACHE_NAME
+    if not path.exists():
+        return None
+    try:
+        data = np.load(path)
+        names = [str(x) for x in data["names"]]
+        emb = data["emb"]
+    except Exception:
+        return None
+    if names != _entity_names_ordered or emb.shape[0] != len(_entity_names_ordered):
+        return None
+    return emb
+
+
+def _save_emb_cache(emb: np.ndarray) -> None:
+    if _graph_dir is None:
         return
+    try:
+        np.savez(
+            _graph_dir / EMB_CACHE_NAME,
+            emb=emb,
+            names=np.array(_entity_names_ordered),
+        )
+    except Exception as e:  # caching is best-effort
+        print(f"[graph_rag] failed to cache entity embeddings: {e}")
+
+
+async def _embed_entity_names() -> np.ndarray:
     BATCH = 256
-    out: list[list[float]] = []
+    rows: list[list[float]] = []
     for i in range(0, len(_entity_names_ordered), BATCH):
         batch = _entity_names_ordered[i : i + BATCH]
         resp = await _openai_client.embeddings.create(model=EMBED_MODEL, input=batch)
-        out.extend(d.embedding for d in resp.data)
-    _entity_embeddings = out
+        rows.extend(d.embedding for d in resp.data)
+    arr = np.asarray(rows, dtype=np.float32)
+    norms = np.linalg.norm(arr, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return arr / norms  # L2-normalised so cosine == dot product
 
 
-def _cosine(a: list[float], b: list[float]) -> float:
-    import math
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    return dot / (na * nb) if na and nb else 0.0
+async def _ensure_entity_embeddings() -> None:
+    """Build (or load from disk) the L2-normalised entity-name embedding matrix.
+    One-time cost, guarded by a lock so concurrent first queries don't both
+    embed all names."""
+    global _entity_emb
+    if _entity_emb is not None or not _entity_names_ordered:
+        return
+    async with _emb_lock:
+        if _entity_emb is not None:
+            return
+        cached = _load_emb_cache()
+        if cached is not None:
+            _entity_emb = cached
+            return
+        emb = await _embed_entity_names()
+        _entity_emb = emb
+        _save_emb_cache(emb)
+
+
+async def warm_entity_embeddings() -> None:
+    """Build the entity-embedding matrix ahead of the first query (scheduled in
+    the app lifespan). Removes the inline embed latency from the first graph
+    query that needs the nearest-neighbour seed fallback."""
+    if not is_built():
+        return
+    try:
+        await _ensure_entity_embeddings()
+    except Exception as e:  # never crash startup over a warm step
+        print(f"[graph_rag] entity-embedding warm failed: {e}")
 
 
 def _nearest_entity(query_vec: list[float], top_k: int = 1) -> list[tuple[str, float]]:
-    if _entity_embeddings is None:
+    """Vectorised cosine nearest-neighbour over entity names. Fast enough
+    (single matmul) that it doesn't need to leave the event loop."""
+    if _entity_emb is None:
         return []
-    scored = [
-        (_entity_names_ordered[i], _cosine(query_vec, _entity_embeddings[i]))
-        for i in range(len(_entity_embeddings))
-    ]
-    scored.sort(key=lambda x: -x[1])
-    return [(name, score) for name, score in scored[:top_k]]
+    q = np.asarray(query_vec, dtype=np.float32)
+    nq = float(np.linalg.norm(q))
+    if nq == 0.0:
+        return []
+    scores = _entity_emb @ (q / nq)  # both sides normalised → cosine
+    k = min(top_k, scores.shape[0])
+    if k <= 0:
+        return []
+    top = np.argpartition(-scores, k - 1)[:k]
+    top = top[np.argsort(-scores[top])]
+    return [(_entity_names_ordered[i], float(scores[i])) for i in top]
 
 
 def _resolve_seed(name: str, query_vec_supplier) -> tuple[str | None, str]:

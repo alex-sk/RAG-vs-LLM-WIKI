@@ -21,6 +21,7 @@ corpus/
 data/chroma/
 data/all_questions.json
 data/build_manifest.json
+data/graph/entity_embeddings.npz
 
 # Logs / debug
 *.log
