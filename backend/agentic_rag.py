@@ -328,7 +328,7 @@ async def agentic_rag_stream(
                 result = tool_read_file(path)
                 preview = f"{len(result)} chars"
             elif name == "grep":
-                result = tool_grep(args.get("pattern", ""))
+                result = await asyncio.to_thread(tool_grep, args.get("pattern", ""))
                 preview = f"{len(result)} matches"
             else:
                 result = {"error": f"unknown tool: {name}"}

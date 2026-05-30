@@ -1,13 +1,14 @@
 """LLM Wiki pipeline: an agentic loop with glob/read_file/grep tools over corpus/."""
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 import json
-import re
 import time
 from pathlib import Path
 from typing import AsyncIterator
 
+import regex  # third-party: supports a per-scan timeout to bound catastrophic backtracking
 from fastapi import Request
 from openai import AsyncOpenAI
 
@@ -17,6 +18,8 @@ CORPUS_DIR = (ROOT / "corpus").resolve()
 GENERATION_MODEL = "gpt-4o-2024-08-06"  # pinned snapshot
 MAX_TURNS = 8
 MAX_FILE_BYTES = 8_000
+GREP_TIMEOUT_S = 1.0   # total wall-clock budget for a single grep call
+MAX_PATTERN_LEN = 200  # reject absurdly long patterns up front
 
 PRICE_PER_M = {"gpt-4o-2024-08-06": {"in": 2.50, "out": 10.00}}
 
@@ -63,19 +66,34 @@ def tool_read_file(path: str) -> str:
 
 
 def tool_grep(pattern: str, max_matches: int = 20) -> list[dict]:
+    # The LLM (or injected content steering it) supplies this pattern, so a
+    # pathological regex could otherwise hang the request via catastrophic
+    # backtracking. We cap pattern length and enforce a wall-clock budget that
+    # `regex` checks during scanning — including mid-match — so it bails out.
+    if len(pattern) > MAX_PATTERN_LEN:
+        return [{"error": f"pattern too long (max {MAX_PATTERN_LEN} chars)"}]
     try:
-        regex = re.compile(pattern, re.IGNORECASE)
-    except re.error as e:
+        rx = regex.compile(pattern, regex.IGNORECASE)
+    except regex.error as e:
         return [{"error": f"bad regex: {e}"}]
-    out = []
+    out: list[dict] = []
+    deadline = time.monotonic() + GREP_TIMEOUT_S
     for name, text in _CORPUS.items():
-        for m in regex.finditer(text):
-            start = max(0, m.start() - 40)
-            end = min(len(text), m.end() + 40)
-            snippet = text[start:end].replace("\n", " ")
-            out.append({"file": name, "snippet": f'<source name="{name}">{snippet}</source>'})
-            if len(out) >= max_matches:
-                return out
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            out.append({"error": "grep exceeded its time budget — use a more specific pattern"})
+            break
+        try:
+            for m in rx.finditer(text, timeout=remaining):
+                start = max(0, m.start() - 40)
+                end = min(len(text), m.end() + 40)
+                snippet = text[start:end].replace("\n", " ")
+                out.append({"file": name, "snippet": f'<source name="{name}">{snippet}</source>'})
+                if len(out) >= max_matches:
+                    return out
+        except TimeoutError:
+            out.append({"error": "grep timed out — use a more specific pattern"})
+            break
     return out
 
 
@@ -214,7 +232,7 @@ async def wiki_stream(question: str, request: Request | None = None) -> AsyncIte
                 result = tool_read_file(path)
                 preview = f"{len(result)} chars"
             elif name == "grep":
-                result = tool_grep(args.get("pattern", ""))
+                result = await asyncio.to_thread(tool_grep, args.get("pattern", ""))
                 preview = f"{len(result)} matches"
             else:
                 result = {"error": f"unknown tool: {name}"}
