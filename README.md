@@ -85,4 +85,4 @@ scripts/         build_corpus, build_index, build_graph, curate_questions, smoke
 uv run scripts/smoke_test.py --limit 3
 ```
 
-Runs both pipelines against the first N curated questions and prints a short pass/fail-ish report. Uses the same substring check the UI uses, with the same caveats.
+Runs all four pipelines against the first N curated questions and prints a short pass/fail-ish report. Correctness here uses a quick substring check (`gold in answer`) — looser than the UI, which grades with an LLM-as-judge (`/api/judge`) — so treat it as a smoke signal, not an accuracy metric.

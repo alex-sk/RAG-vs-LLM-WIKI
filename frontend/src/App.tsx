@@ -204,7 +204,7 @@ export default function App() {
             {headerTitle}
           </h1>
           <p className="mt-0.5 text-xs text-neutral-500">
-            Same model · same corpus · different retrieval
+            Same generation model · same corpus · different retrieval
           </p>
         </div>
       </header>
