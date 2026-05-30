@@ -1,6 +1,7 @@
 """Classic RAG pipeline: embed → top-k from Chroma → optional rerank → LLM answer."""
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import AsyncIterator, Literal
 
@@ -88,7 +89,11 @@ async def rag_stream(
     embed_tok = embed_resp.usage.total_tokens
 
     n_results = TOP_K_CANDIDATES if rerank_mode != "none" else TOP_K
-    res = _chroma_coll.query(query_embeddings=[query_vec], n_results=n_results)
+    # Chroma's query is synchronous; offload so it doesn't stall the event loop
+    # (and the other panels streaming concurrently).
+    res = await asyncio.to_thread(
+        _chroma_coll.query, query_embeddings=[query_vec], n_results=n_results
+    )
     chunks = []
     for doc, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
         chunks.append({

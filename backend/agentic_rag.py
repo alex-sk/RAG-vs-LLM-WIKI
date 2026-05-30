@@ -3,6 +3,7 @@ the shared Chroma index. The first vector_search is pre-seeded server-side so
 the agent's opening message already contains candidate articles."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import AsyncIterator
@@ -63,7 +64,10 @@ async def tool_vector_search(
     embed_tok = embed_resp.usage.total_tokens
 
     n_results = TOP_K_CANDIDATES if rerank_mode != "none" else k
-    res = _chroma_coll.query(query_embeddings=[query_vec], n_results=n_results)
+    # Chroma's query is synchronous; offload so it doesn't stall the event loop.
+    res = await asyncio.to_thread(
+        _chroma_coll.query, query_embeddings=[query_vec], n_results=n_results
+    )
     candidates: list[dict] = []
     for doc, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
         candidates.append({
